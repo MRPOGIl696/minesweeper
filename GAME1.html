@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nervous Minesweeper</title>
+
+  <style>
+    /* ---------- Colors ---------- */
+    :root {
+      color-scheme: dark;
+      --bg: #0d0f14;
+      --text: #e8eaf0;
+      --cell: #1f2430;
+      --cell-open: #12151c;
+      --red: #ff2d3d;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * { box-sizing: border-box; }
+
+    /* ---------- Page ---------- */
+    body {
+      margin: 0;
+      padding: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, sans-serif;
+      transition: background 0.3s;
+    }
+
+    /* Background changes with the tension level */
+    body.tense { background: #160b0e; }
+    body.panic { animation: pulse 0.38s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { background: #2a0508; }
+      50%      { background: #6b0a12; }
+    }
+
+    h1 {
+      font-size: 20px;
+      margin: 4px 0 10px;
+    }
+
+    /* ---------- Timer bar and idle bar ---------- */
+    .bar {
+      width: 100%;
+      max-width: 400px;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .idle {
+      width: 100%;
+      max-width: 400px;
+      height: 8px;
+      margin-bottom: 10px;
+      background: var(--cell);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    #fill {
+      height: 100%;
+      width: 0;
+      background: #4ade80;
+    }
+
+    /* ---------- Grid and tiles ---------- */
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);  /* change together with GRID_SIZE in the script */
+      gap: 3px;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .tile {
+      aspect-ratio: 1;
+      padding: 0;
+      border: 0;
+      border-radius: 5px;
+      background: var(--cell);
+      color: var(--text);
+      font-size: clamp(14px, 4.5vw, 20px);
+      font-weight: 800;
+    }
+
+    .tile.open { background: var(--cell-open); }
+    .tile.bomb { background: var(--red); }
+
+    /* Number colors */
+    .n1 { color: #60a5fa; }
+    .n2 { color: #4ade80; }
+    .n3 { color: #f87171; }
+    .n4 { color: #c084fc; }
+    .n5, .n6, .n7, .n8 { color: #fbbf24; }
+
+    /* ---------- Flag button ---------- */
+    .tools {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .tool-btn {
+      padding: 10px 14px;
+      border: 1px solid #333a4a;
+      border-radius: 8px;
+      background: var(--cell);
+      color: var(--text);
+      font-size: 15px;
+    }
+
+    .tool-btn.on { background: #3b82f6; }
+
+    /* ---------- Start / Game over screen ---------- */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      text-align: center;
+      background: rgba(0, 0, 0, 0.88);
+    }
+
+    #overlay h2 {
+      margin: 0;
+      font-size: 38px;
+    }
+
+    #overlay p {
+      max-width: 320px;
+      margin: 0;
+      line-height: 1.4;
+      opacity: 0.85;
+    }
+
+    #nameInput {
+      width: 240px;
+      padding: 12px 14px;
+      border: 1px solid #333a4a;
+      border-radius: 10px;
+      background: var(--cell);
+      color: var(--text);
+      font-size: 18px;
+      text-align: center;
+    }
+
+    #nameInput.error { border-color: var(--red); }
+
+    #overlay button {
+      padding: 14px 30px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--red);
+      color: #fff;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    /* ---------- v2: menu, levels, shop, demo ---------- */
+    #overlay { overflow-y: auto; justify-content: flex-start; align-items: stretch; z-index: 10; }
+    .card { margin: auto; width: 100%; max-width: 340px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    #overlay h2 { font-size: 30px; }
+    #overlayText:empty { display: none; }
+    .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; font-size: 13px; opacity: 0.85; }
+    #info { text-align: left; font-size: 14px; line-height: 1.45; }
+    #info ul { margin: 6px 0 0; padding-left: 18px; }
+    .credit { margin-top: 10px; text-align: center; font-weight: 700; color: #fbbf24; opacity: 0; animation: pop 0.7s 1.5s forwards; }
+    @keyframes pop { 0% { opacity: 0; transform: scale(0.6); } 70% { transform: scale(1.12); } 100% { opacity: 1; transform: scale(1); } }
+    .row { display: flex; gap: 8px; width: 100%; justify-content: center; }
+    #overlay button.diff { flex: 1; padding: 10px 4px; font-size: 13px; line-height: 1.3; background: var(--cell); border: 1px solid #333a4a; }
+    #overlay button.diff.sel { background: #3b82f6; border-color: #3b82f6; }
+    #overlay button.sec { padding: 10px 16px; font-size: 15px; background: var(--cell); border: 1px solid #333a4a; }
+    #grid.big { gap: 2px; }
+    #grid.big .tile { font-size: 12px; border-radius: 3px; }
+
+    .screen { position: fixed; inset: 0; z-index: 20; display: none; overflow-y: auto; padding: 20px; background: rgba(0, 0, 0, 0.94); }
+    .screen button { padding: 10px 16px; border: 0; border-radius: 8px; background: #3b82f6; color: #fff; font-size: 15px; font-weight: 700; }
+    .screen button:disabled { opacity: 0.45; }
+    .item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 1px solid #333a4a; border-radius: 8px; }
+    .swatch { width: 34px; height: 34px; border-radius: 6px; border: 1px solid #555; }
+    .grow { flex: 1; text-align: left; }
+    #demoGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; width: 180px; }
+    #demoCap { min-height: 64px; text-align: center; line-height: 1.4; }
+    #demoFill { height: 100%; width: 0; background: #4ade80; transition: width 2.5s linear, background 2.5s; }
+  </style>
+</head>
+
+<body>
+  <h1>💣 Nervous Minesweeper</h1>
+
+  <div class="bar">
+    <span id="timeLeft">⏱ 60</span>
+    <span id="coins">🪙 0</span>
+    <span id="bombCount">💣 10</span>
+  </div>
+  <div class="idle"><div id="fill"></div></div>
+
+  <div id="grid"></div>
+
+  <div class="tools">
+    <button class="tool-btn" id="flagBtn">🚩 Flag mode: off</button>
+  </div>
+
+  <div id="overlay">
+    <div class="card">
+      <h2 id="overlayTitle">Nervous Minesweeper</h2>
+      <div class="stats"><span id="visited">👥 … people visited</span><span id="played">🎮 … people played</span></div>
+      <p id="overlayText"></p>
+
+      <div id="info">
+        <b>How to play</b>
+        <ul>
+          <li>Type your username and pick a level.</li>
+          <li>Tap a tile to open it. The number shows how many bombs touch that tile.</li>
+          <li>Open every safe tile. Hit a bomb and you lose!</li>
+          <li>Use Flag mode 🚩 to mark tiles you think are bombs.</li>
+          <li>Beat the clock. Wait too long without tapping and the panic alarm starts. A safe tap calms it down.</li>
+          <li>Win to earn coins 🪙 and spend them in the Shop on new backgrounds.</li>
+          <li>WAG MO HUHULAAN HINDI ITO GUESSING GAME OKAYED?.</li>
+          <li>GOOD LUCK PLAYING!!</li>
+          </li>
+        </ul>
+        <div class="credit">Made by: mrpogi herr. J. Cris</div>
+      </div>
+
+      <input id="nameInput" maxlength="16" placeholder="Enter your username" autocomplete="off">
+      <div class="row">
+        <button class="diff sel" data-level="easy">Easy<br>5×5 · +20🪙</button>
+        <button class="diff" data-level="medium">Medium<br>9×9 · +50🪙</button>
+        <button class="diff" data-level="hard">Hard<br>15×15 · +100🪙</button>
+      </div>
+      <button id="startBtn">Start</button>
+      <div class="row">
+        <button class="sec" id="demoBtn">▶ Demo</button>
+        <button class="sec" id="shopBtn">🛍 Shop</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="shop" class="screen">
+    <div class="card">
+      <h2>🛍 Shop</h2>
+      <div id="shopCoins">🪙 0</div>
+      <div id="shopList" class="card"></div>
+      <button id="shopClose">Close</button>
+    </div>
+  </div>
+
+  <div id="demo" class="screen">
+    <div class="card">
+      <h2>How it works</h2>
+      <div id="demoGrid"></div>
+      <div class="idle"><div id="demoFill"></div></div>
+      <div id="demoCap"></div>
+      <button id="demoClose">Skip</button>
+    </div>
+  </div>
+  <script>
+    /* =====================================================
+       SETTINGS: change these to tweak the game
+       ===================================================== */
+    // Levels: board size, bombs, seconds for the whole game, seconds before panic, coin reward
+    const DIFF = {
+      easy:   { size: 5,  bombs: 4,  time: 30,  idle: 20, reward: 20  },
+      medium: { size: 9,  bombs: 10, time: 60,  idle: 15, reward: 50  },
+      hard:   { size: 15, bombs: 35, time: 120, idle: 10, reward: 100 },
+    };
+    let difficulty = 'easy';
+    let GRID_SIZE = 5, BOMB_COUNT = 4, TOTAL_TIME = 30, IDLE_LIMIT = 20;
+
+    function applyDifficulty() {
+      const d = DIFF[difficulty];
+      GRID_SIZE = d.size; BOMB_COUNT = d.bombs; TOTAL_TIME = d.time; IDLE_LIMIT = d.idle;
+    }
+
+    /* =====================================================
+       STATE
+       ===================================================== */
+    let tiles = [];          // one object per tile: { bomb, revealed, flagged, count, el }
+    let gameRunning = false;
+    let gameOver    = false;
+    let firstClick  = true;
+    let flagMode    = false;
+    let startTime   = 0;
+    let lastClick   = 0;
+    let gameLoop    = null;  // the interval that updates the timers
+    let playerName  = '';    // the username typed on the start screen
+
+    const $ = (id) => document.getElementById(id);
+
+    /* =====================================================
+       SOUND
+       Everything is generated by the browser (Web Audio API),
+       so no audio files are needed.
+       ===================================================== */
+    let audio = null;        // the audio context
+    let tension = 0;         // 0 = calm, 1 = tense, 2 = panic
+    let heartbeatTimer = null;
+    let stingTimer = null;
+    let dronePieces = [];    // oscillators to stop later
+    let sirenPieces = [];
+
+    // Play one short beep that fades out
+    function playTone(freq, duration, type, volume, endFreq) {
+      const now  = audio.currentTime;
+      const osc  = audio.createOscillator();
+      const gain = audio.createGain();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      if (endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, now + duration);
+
+      gain.gain.setValueAtTime(volume, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+      osc.connect(gain).connect(audio.destination);
+      osc.start(now);
+      osc.stop(now + duration);
+    }
+
+    // Create an oscillator that keeps playing until stopped
+    function startOscillator(freq, type, volume, lowpassFreq) {
+      const osc    = audio.createOscillator();
+      const gain   = audio.createGain();
+      const filter = audio.createBiquadFilter();
+
+      osc.type = type;
+      osc.frequency.value = freq;
+      filter.type = 'lowpass';
+      filter.frequency.value = lowpassFreq;
+      gain.gain.value = volume;
+
+      osc.connect(filter).connect(gain).connect(audio.destination);
+      osc.start();
+      return osc;
+    }
+
+    // Explosion: a burst of fading noise plus a low drop
+    function playExplosion() {
+      const length = audio.sampleRate * 1.6;
+      const buffer = audio.createBuffer(1, length, audio.sampleRate);
+      const data   = buffer.getChannelData(0);
+
+      for (let i = 0; i < length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
+      }
+
+      const source = audio.createBufferSource();
+      const filter = audio.createBiquadFilter();
+      const gain   = audio.createGain();
+
+      source.buffer = buffer;
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(3000, audio.currentTime);
+      filter.frequency.exponentialRampToValueAtTime(80, audio.currentTime + 1.5);
+      gain.gain.value = 1.2;
+
+      source.connect(filter).connect(gain).connect(audio.destination);
+      source.start();
+
+      playTone(120, 1.2, 'sine', 1, 25);
+    }
+
+    // Two thumps, repeated. Faster during panic.
+    function heartbeat() {
+      if (tension === 0) return;
+
+      playTone(62, 0.2, 'sine', 1.2, 36);
+      setTimeout(() => playTone(58, 0.16, 'sine', 0.6, 36), tension === 2 ? 130 : 190);
+
+      heartbeatTimer = setTimeout(heartbeat, tension === 2 ? 360 : 850);
+    }
+
+    function stopAllSounds() {
+      [...dronePieces, ...sirenPieces].forEach((osc) => {
+        try { osc.stop(); } catch (e) { /* already stopped */ }
+      });
+      dronePieces = [];
+      sirenPieces = [];
+      clearTimeout(heartbeatTimer);
+      clearInterval(stingTimer);
+    }
+
+    // Switch between calm (0), tense (1) and panic (2)
+    function setTension(level) {
+      if (!audio || level === tension) return;
+
+      stopAllSounds();
+      tension = level;
+      document.body.className = level === 1 ? 'tense' : level === 2 ? 'panic' : '';
+      if (level === 0) return;
+
+      // Low creepy drone (used in both tense and panic)
+      const wobbler = startOscillator(level === 2 ? 82.4 : 77.8, 'triangle', 0.05, 400);
+      dronePieces = [
+        startOscillator(55,   'sawtooth', 0.07, 220),
+        startOscillator(58.3, 'sawtooth', 0.07, 220),
+        wobbler,
+      ];
+
+      if (level === 1) {
+        // Tense: the drone wobbles slowly and a thin high note pings now and then
+        const lfo     = audio.createOscillator();
+        const lfoGain = audio.createGain();
+        lfo.frequency.value = 5;
+        lfoGain.gain.value = 40;
+        lfo.connect(lfoGain).connect(wobbler.detune);
+        lfo.start();
+        dronePieces.push(lfo);
+
+        stingTimer = setInterval(() => {
+          playTone(1180 + Math.random() * 60, 1.4, 'sine', 0.05, 1100);
+        }, 2600);
+      } else {
+        // Panic: a siren plus a screech that keeps rising in pitch
+        const siren     = audio.createOscillator();
+        const sirenGain = audio.createGain();
+        const lfo       = audio.createOscillator();
+        const lfoGain   = audio.createGain();
+
+        siren.type = 'square';
+        siren.frequency.value = 620;
+        lfo.frequency.value = 2.5;
+        lfoGain.gain.value = 260;
+        lfo.connect(lfoGain).connect(siren.frequency);
+        sirenGain.gain.value = 0.05;
+        siren.connect(sirenGain).connect(audio.destination);
+        siren.start();
+        lfo.start();
+
+        const riser     = audio.createOscillator();
+        const riserGain = audio.createGain();
+        riser.type = 'sawtooth';
+        riser.frequency.setValueAtTime(150, audio.currentTime);
+        riser.frequency.exponentialRampToValueAtTime(1800, audio.currentTime + 20);
+        riserGain.gain.value = 0.035;
+        riser.connect(riserGain).connect(audio.destination);
+        riser.start();
+
+        sirenPieces = [siren, lfo, riser];
+      }
+
+      heartbeat();
+    }
+
+    /* =====================================================
+       BOARD
+       ===================================================== */
+    function buildBoard() {
+      const grid = $('grid');
+      grid.innerHTML = '';
+      grid.style.gridTemplateColumns = 'repeat(' + GRID_SIZE + ', 1fr)';
+      grid.classList.toggle('big', GRID_SIZE > 9);
+      tiles = [];
+
+      for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+        const button = document.createElement('button');
+        button.className = 'tile';
+        button.onclick = () => clickTile(i);
+        grid.appendChild(button);
+        tiles.push({ bomb: false, revealed: false, flagged: false, count: 0, el: button });
+      }
+    }
+
+    // Indexes of the tiles touching tile i (up to 8)
+    function neighbors(i) {
+      const row = Math.floor(i / GRID_SIZE);
+      const col = i % GRID_SIZE;
+      const result = [];
+
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const r = row + dy;
+          const c = col + dx;
+          if (r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE) {
+            result.push(r * GRID_SIZE + c);
+          }
+        }
+      }
+      return result;
+    }
+
+    // Bombs are placed after the first click so the first tile is always safe
+    function placeBombs(safeIndex) {
+      let placed = 0;
+      while (placed < BOMB_COUNT) {
+        const i = Math.floor(Math.random() * tiles.length);
+        if (i === safeIndex || tiles[i].bomb) continue;
+        tiles[i].bomb = true;
+        placed++;
+      }
+
+      tiles.forEach((tile, i) => {
+        tile.count = neighbors(i).filter((n) => tiles[n].bomb).length;
+      });
+    }
+
+    // Open a tile. If it has 0 bombs around it, open its neighbors too.
+    function revealTile(i) {
+      const tile = tiles[i];
+      if (tile.revealed || tile.flagged) return;
+
+      tile.revealed = true;
+      tile.el.classList.add('open');
+
+      if (tile.count > 0) {
+        tile.el.textContent = tile.count;
+        tile.el.classList.add('n' + tile.count);
+      } else {
+        neighbors(i).forEach(revealTile);
+      }
+    }
+
+    function showAllBombs() {
+      tiles.forEach((tile) => {
+        if (tile.bomb) {
+          tile.el.textContent = '💣';
+          tile.el.classList.add('bomb');
+        }
+      });
+    }
+
+    /* =====================================================
+       GAME FLOW
+       ===================================================== */
+    function clickTile(i) {
+      if (!gameRunning || gameOver) return;
+      const tile = tiles[i];
+
+      // Flag mode: place or remove a flag instead of opening
+      if (flagMode) {
+        if (!tile.revealed) {
+          tile.flagged = !tile.flagged;
+          tile.el.textContent = tile.flagged ? '🚩' : '';
+        }
+        return;
+      }
+
+      if (tile.flagged || tile.revealed) return;
+
+      if (firstClick) {
+        placeBombs(i);
+        firstClick = false;
+      }
+
+      lastClick = Date.now();   // resets the 10-second countdown
+
+      if (tile.bomb) {
+        endGame('💥 BOOM!', 'Sorry ' + playerName + ', you hit a BOMB! WAG NGANI HULAAN ', true);
+        return;
+      }
+
+      revealTile(i);
+      playTone(520, 0.08, 'triangle', 0.25);
+
+      const allSafeOpened = tiles.every((t) => t.bomb || t.revealed);
+      if (allSafeOpened) {
+        winGame();
+        return;
+      }
+
+      setTension(1);   // safe click: back from panic to normal tension
+    }
+
+    function endGame(title, message, exploded) {
+      gameOver = true;
+      clearInterval(gameLoop);
+      stopAllSounds();
+      tension = 0;
+      document.body.className = '';
+
+      if (exploded) {
+        showAllBombs();
+        playExplosion();
+      }
+
+      // Small delay so the player sees the board before the screen appears
+      setTimeout(() => {
+        $('overlayTitle').textContent = title;
+        $('overlayText').textContent = message;
+        $('startBtn').textContent = 'Play again';
+        $('info').style.display = 'none';
+        $('overlay').style.display = 'flex';
+      }, exploded ? 900 : 200);
+    }
+
+    function winGame() {
+      const reward = DIFF[difficulty].reward;
+      addCoins(reward);
+      endGame('😮‍💨 You survived!', 'All safe tiles cleared. +' + reward + ' 🪙 coins!', false);
+      playTone(660, 0.3, 'triangle', 0.3);
+      setTimeout(() => playTone(880, 0.4, 'triangle', 0.3), 200);
+    }
+
+    // Runs 10 times a second: updates the clock and checks the idle time
+    function updateTimers() {
+      const now      = Date.now();
+      const timeLeft = Math.max(0, TOTAL_TIME - (now - startTime) / 1000);
+      const idleTime = (now - lastClick) / 1000;
+
+      $('timeLeft').textContent = '⏱ ' + Math.ceil(timeLeft);
+
+      const fill = $('fill');
+      fill.style.width = Math.min(100, (idleTime / IDLE_LIMIT) * 100) + '%';
+      fill.style.background =
+        idleTime >= IDLE_LIMIT ? '#ff2d3d' : idleTime > 6 ? '#fbbf24' : '#4ade80';
+
+      if (idleTime >= IDLE_LIMIT) setTension(2);
+
+      if (timeLeft <= 0) {
+        showAllBombs();
+        endGame('⏰ Time\u2019s up', 'The clock hit zero. YOU LOSE.', false);
+        playTone(200, 1, 'sawtooth', 0.5, 50);
+      }
+    }
+
+    function startGame() {
+      // A username is required before playing
+      const input = $('nameInput');
+      playerName = input.value.trim();
+      if (!playerName) {
+        input.classList.add('error');
+        input.focus();
+        return;
+      }
+      input.classList.remove('error');
+      if (!load('mrp_played2', '')) { save('mrp_played2', '1'); countPeople('plays', true).then((n) => showStat('played', '🎮 ', n, ' people played')); }
+
+      // Browsers only allow sound after a click, so the audio starts here
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === 'suspended') audio.resume();
+
+      applyDifficulty();
+      buildBoard();
+      gameRunning = true;
+      gameOver    = false;
+      firstClick  = true;
+      tension     = 0;
+      startTime   = lastClick = Date.now();
+
+      $('overlay').style.display = 'none';
+      $('timeLeft').textContent = '⏱ ' + TOTAL_TIME;
+      $('bombCount').textContent = '💣 ' + BOMB_COUNT;
+      $('fill').style.width = '0';
+
+      clearInterval(gameLoop);
+      gameLoop = setInterval(updateTimers, 100);
+    }
+
+    /* =====================================================
+       SAVING (coins, owned backgrounds, counters) in this browser
+       ===================================================== */
+    const load = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
+    const save = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
+
+    /* =====================================================
+       COINS AND SHOP
+       ===================================================== */
+    const SKINS = [
+      { id: 'default', name: 'Classic Dark', price: 0,   bg: '#0d0f14' },
+      { id: 'ocean',   name: 'Deep Ocean',   price: 30,  bg: 'linear-gradient(160deg,#04202f,#0b4a6f)' },
+      { id: 'forest',  name: 'Dark Forest',  price: 50,  bg: 'linear-gradient(160deg,#07160c,#14532d)' },
+      { id: 'sunset',  name: 'Sunset',       price: 80,  bg: 'linear-gradient(160deg,#3b0b3a,#c2410c)' },
+      { id: 'neon',    name: 'Neon City',    price: 100, bg: 'linear-gradient(160deg,#0f0326,#5b21b6 60%,#0891b2)' },
+      { id: 'gold',    name: 'Royal Gold',   price: 150, bg: 'linear-gradient(160deg,#1c1400,#a16207)' },
+    ];
+    let coins  = Number(load('mrp_coins', 0)) || 0;
+    let owned  = ['default'];
+    try { owned = JSON.parse(load('mrp_owned', '["default"]')); } catch (e) { /* keep default */ }
+    let skinId = load('mrp_skin', 'default');
+
+    function showCoins() {
+      $('coins').textContent = '🪙 ' + coins;
+      $('shopCoins').textContent = '🪙 ' + coins + ' coins';
+    }
+
+    function addCoins(n) { coins += n; save('mrp_coins', coins); showCoins(); }
+
+    function applySkin() {
+      const skin = SKINS.find((x) => x.id === skinId) || SKINS[0];
+      document.body.style.setProperty('--bg', skin.bg);
+    }
+
+    function renderShop() {
+      const list = $('shopList');
+      list.innerHTML = '';
+      showCoins();
+
+      SKINS.forEach((skin) => {
+        const row    = document.createElement('div');
+        const swatch = document.createElement('span');
+        const label  = document.createElement('span');
+        const btn    = document.createElement('button');
+        row.className = 'item';
+        swatch.className = 'swatch';
+        swatch.style.background = skin.bg;
+        label.className = 'grow';
+        label.textContent = skin.name;
+
+        if (owned.includes(skin.id)) {
+          btn.textContent = skinId === skin.id ? 'Equipped' : 'Equip';
+          btn.disabled = skinId === skin.id;
+          btn.onclick = () => { skinId = skin.id; save('mrp_skin', skinId); applySkin(); renderShop(); };
+        } else {
+          btn.textContent = '🪙 ' + skin.price;
+          btn.disabled = coins < skin.price;
+          btn.onclick = () => {
+            coins -= skin.price;
+            owned.push(skin.id);
+            skinId = skin.id;
+            save('mrp_coins', coins); save('mrp_owned', JSON.stringify(owned)); save('mrp_skin', skinId);
+            applySkin(); renderShop();
+          };
+        }
+        row.append(swatch, label, btn);
+        list.appendChild(row);
+      });
+    }
+
+    /* =====================================================
+       DEMO: a tiny scripted 3x3 game (bomb is the bottom-right tile)
+       ===================================================== */
+    let demoTimers = [];
+    let demoThenStart = false;
+
+    function openDemo(thenStart) {
+      demoThenStart = thenStart;
+      const grid = $('demoGrid');
+      grid.innerHTML = '';
+      for (let i = 0; i < 9; i++) {
+        const t = document.createElement('div');
+        t.className = 'tile';
+        t.style.aspectRatio = '1';
+        t.style.display = 'flex';
+        t.style.alignItems = 'center';
+        t.style.justifyContent = 'center';
+        grid.appendChild(t);
+      }
+      const cell = [...grid.children];
+      const open = (i, n) => { cell[i].classList.add('open'); if (n) { cell[i].textContent = n; cell[i].classList.add('n' + n); } };
+      const fill = $('demoFill');
+      fill.style.transition = 'none'; fill.style.width = '0'; fill.style.background = '#4ade80';
+      $('demoClose').textContent = 'Skip';
+
+      const steps = [
+        ['Tap a tile to open it. The number tells how many bombs touch it.', () => open(4, 1)],
+        ['Two more 1s! Every one of them touches the bottom-right corner.', () => { open(5, 1); open(7, 1); }],
+        ['So that corner must be a bomb. Turn on Flag mode 🚩 to mark it.', () => { cell[8].textContent = '🚩'; }],
+        ['Do not wait! With no tap for a few seconds the panic alarm starts. A safe tap calms it.', () => {
+          fill.style.transition = 'width 2.5s linear, background 2.5s'; fill.style.width = '100%'; fill.style.background = '#ff2d3d';
+        }],
+        ['Open all safe tiles before the clock runs out to earn coins. Hit a bomb and you lose!', () => {
+          cell[8].textContent = '💣'; cell[8].classList.add('bomb');
+        }],
+      ];
+
+      demoTimers.forEach(clearTimeout);
+      demoTimers = [];
+      steps.forEach((step, i) => {
+        demoTimers.push(setTimeout(() => { $('demoCap').textContent = step[0]; step[1](); }, 300 + i * 3300));
+      });
+      demoTimers.push(setTimeout(() => { $('demoClose').textContent = thenStart ? 'Start playing ▶' : 'Close'; }, 300 + steps.length * 3300));
+      $('demoCap').textContent = '';
+      $('demo').style.display = 'block';
+    }
+
+    function closeDemo() {
+      demoTimers.forEach(clearTimeout);
+      $('demo').style.display = 'none';
+      save('mrp_demo', '1');
+      if (demoThenStart) startGame();
+    }
+
+    /* =====================================================
+       VISITOR AND PLAYER COUNTERS
+       Uses a free online counter. If it can't be reached, a dash is shown.
+       ===================================================== */
+    // Free counting service (https://abacus.jasoncameron.dev). "hit" adds 1, "get" only reads.
+    const COUNTER_URL = 'https://abacus.jasoncameron.dev/';
+    const COUNTER_ID  = 'mrpogil696-nervous-minesweeper';
+
+    async function countPeople(name, addOne) {
+      try {
+        const res = await fetch(COUNTER_URL + (addOne ? 'hit/' : 'get/') + COUNTER_ID + '/' + name);
+        if (res.status === 404) return 0;   // nobody has been counted yet
+        const data = await res.json();
+        return typeof data.value === 'number' ? data.value : null;
+      } catch (e) { return null; }
+    }
+
+    function showStat(id, before, n, after) {
+      $(id).textContent = before + (n === null ? '—' : n) + after;
+    }
+
+    function initExtras() {
+      applySkin();
+      showCoins();
+
+      const newVisitor = !load('mrp_visited2', '');   // count each browser only once
+      save('mrp_visited2', '1');
+      countPeople('visits', newVisitor).then((n) => showStat('visited', '👥 ', n, ' people visited'));
+      countPeople('plays', false).then((n) => showStat('played', '🎮 ', n, ' people played'));
+    }
+
+    /* =====================================================
+       BUTTONS
+       ===================================================== */
+    $('startBtn').onclick = () => {
+      const input = $('nameInput');
+      if (!input.value.trim()) { input.classList.add('error'); input.focus(); return; }
+      if (!load('mrp_demo', '')) { openDemo(true); return; }   // first time: show the demo, then start
+      startGame();
+    };
+
+    document.querySelectorAll('.diff').forEach((btn) => {
+      btn.onclick = () => {
+        difficulty = btn.dataset.level;
+        document.querySelectorAll('.diff').forEach((b) => b.classList.toggle('sel', b === btn));
+      };
+    });
+
+    $('demoBtn').onclick   = () => openDemo(false);
+    $('demoClose').onclick = closeDemo;
+    $('shopBtn').onclick   = () => { renderShop(); $('shop').style.display = 'block'; };
+    $('shopClose').onclick = () => { $('shop').style.display = 'none'; };
+
+    $('flagBtn').onclick = (event) => {
+      flagMode = !flagMode;
+      event.target.classList.toggle('on', flagMode);
+      event.target.textContent = '🚩 Flag mode: ' + (flagMode ? 'on' : 'off');
+    };
+
+    buildBoard();   // draw an empty board behind the start screen
+    initExtras();
+  </script>
+</body>
+</html>
